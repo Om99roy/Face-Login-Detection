@@ -47,6 +47,7 @@ class FaceLoginSystem:
         self.face_data = []
         self.user_data_dir = "user_face_data"
         self.images_dir = "face_images"
+        self.models_dir = "trained_models"  # New directory for saved models
         
         # Quality control parameters
         self.stability_threshold = 50  # pixels (increased for better stability)
@@ -57,12 +58,15 @@ class FaceLoginSystem:
         
         # Face recognition parameters
         self.face_recognizer = cv2.face.LBPHFaceRecognizer_create()
+        self.is_model_trained = False
+        self.training_data = []  # Store training data
+        self.training_labels = []  # Store training labels
+        self.user_id = 1  # Default user ID
         
-        if not os.path.exists(self.user_data_dir):
-            os.makedirs(self.user_data_dir)
-            
-        if not os.path.exists(self.images_dir):
-            os.makedirs(self.images_dir)
+        # Create directories
+        for directory in [self.user_data_dir, self.images_dir, self.models_dir]:
+            if not os.path.exists(directory):
+                os.makedirs(directory)
 
     def detect_faces_dnn(self, frame):
         """Detect faces using DNN model"""
@@ -209,6 +213,8 @@ class FaceLoginSystem:
             return [self.convert_to_serializable(item) for item in obj]
         else:
             return obj
+
+    def calculate_geometric_features(self, face_roi):
         """Calculate geometric features from face"""
         gray_face = cv2.cvtColor(face_roi, cv2.COLOR_BGR2GRAY)
         h, w = gray_face.shape
@@ -237,6 +243,166 @@ class FaceLoginSystem:
             features['eye_face_ratio'] = float(eye_distance / w if w > 0 else 0)
         
         return features
+
+    def prepare_training_data(self, face_roi):
+        """Prepare face data for training the LBPH recognizer"""
+        try:
+            gray_face = cv2.cvtColor(face_roi, cv2.COLOR_BGR2GRAY)
+            # Resize to standard size for consistent training
+            gray_face = cv2.resize(gray_face, (200, 200))
+            
+            self.training_data.append(gray_face)
+            self.training_labels.append(self.user_id)
+            
+            print(f"✓ Added training sample {len(self.training_data)} for user {self.user_id}")
+            return True
+        except Exception as e:
+            print(f"Error preparing training data: {e}")
+            return False
+
+    def save_simple_model(self):
+        """Save a simple model even if training fails"""
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            
+            # Create a basic recognizer and save it
+            simple_recognizer = cv2.face.LBPHFaceRecognizer_create()
+            
+            if len(self.training_data) > 0:
+                training_data_array = np.array(self.training_data)
+                training_labels_array = np.array(self.training_labels, dtype=np.int32)
+                simple_recognizer.train(training_data_array, training_labels_array)
+            
+            # Save with both timestamped and simple names
+            model_path1 = os.path.join(self.models_dir, f"simple_model_{timestamp}.yml")
+            model_path2 = os.path.join(self.models_dir, "latest_face_model.yml")
+            
+            simple_recognizer.write(model_path1)
+            simple_recognizer.write(model_path2)
+            
+            print(f"✓ Simple model saved to: {model_path1}")
+            print(f"✓ Latest model saved to: {model_path2}")
+            
+            return True
+        except Exception as e:
+            print(f"Failed to save the model: {e}")
+            return False
+
+    def train_and_save_model(self):
+        """Train the LBPH face recognizer and save the model"""
+        print(f"DEBUG: Current training data length: {len(self.training_data)}")
+        print(f"DEBUG: Training labels length: {len(self.training_labels)}")
+        
+        if len(self.training_data) < 1:  # Accept even 1 sample
+            print(f"No training data available. Have {len(self.training_data)} samples")
+            return False
+        
+        try:
+            print("Training face recognition model...")
+            print(f"Training with {len(self.training_data)} samples for user {self.user_id}")
+            
+            # Ensure we have proper numpy arrays
+            training_data_array = np.array(self.training_data)
+            training_labels_array = np.array(self.training_labels, dtype=np.int32)
+            
+            print(f"DEBUG: Training data shape: {training_data_array.shape}")
+            print(f"DEBUG: Training labels shape: {training_labels_array.shape}")
+            
+            # Create a NEW recognizer for training
+            new_recognizer = cv2.face.LBPHFaceRecognizer_create()
+            
+            # Train the LBPH recognizer
+            new_recognizer.train(training_data_array, training_labels_array)
+            self.is_model_trained = True
+            print("✓ Model training completed successfully!")
+            
+            # Save the trained model
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            model_filename = f"face_recognizer_model_{timestamp}.yml"
+            model_path = os.path.join(self.models_dir, model_filename)
+            
+            print(f"DEBUG: Attempting to save model to: {model_path}")
+            print(f"DEBUG: Models directory exists: {os.path.exists(self.models_dir)}")
+            
+            # Ensure the directory exists
+            os.makedirs(self.models_dir, exist_ok=True)
+            
+            # Save the model using OpenCV's write method
+            new_recognizer.write(model_path)
+            
+            # Verify the file was created
+            if os.path.exists(model_path):
+                file_size = os.path.getsize(model_path)
+                print(f"✓ Model file created successfully: {model_path} (Size: {file_size} bytes)")
+            else:
+                print(f"❌ Model file was NOT created: {model_path}")
+                return False
+            
+            # Also save training metadata
+            metadata = {
+                'timestamp': timestamp,
+                'model_path': model_path,
+                'model_filename': model_filename,
+                'training_samples': len(self.training_data),
+                'user_id': self.user_id,
+                'model_type': 'LBPH_Face_Recognizer',
+                'training_data_shape': str(training_data_array.shape),
+                'labels_shape': str(training_labels_array.shape)
+            }
+            
+            metadata_path = os.path.join(self.models_dir, f"model_metadata_{timestamp}.json")
+            with open(metadata_path, 'w') as f:
+                json.dump(metadata, f, indent=2)
+            
+            print(f"✓ Model successfully saved to: {model_path}")
+            print(f"✓ Model metadata saved to: {metadata_path}")
+            print(f"✓ Training completed with {len(self.training_data)} samples")
+            
+            # Also save a backup with a simple name for Flask integration
+            simple_model_path = os.path.join(self.models_dir, "latest_face_model.yml")
+            new_recognizer.write(simple_model_path)
+            print(f"✓ Latest model also saved as: {simple_model_path}")
+            
+            # Update the main recognizer
+            self.face_recognizer = new_recognizer
+            
+            return True
+            
+        except Exception as e:
+            print(f"❌ Error training/saving model: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
+    def load_model(self, model_path):
+        """Load a pre-trained model"""
+        try:
+            if os.path.exists(model_path):
+                self.face_recognizer.read(model_path)
+                self.is_model_trained = True
+                print(f"✓ Model loaded from: {model_path}")
+                return True
+            else:
+                print(f"Model file not found: {model_path}")
+                return False
+        except Exception as e:
+            print(f"Error loading model: {e}")
+            return False
+
+    def predict_face(self, face_roi):
+        """Predict face using trained model"""
+        if not self.is_model_trained:
+            return None, 0
+        
+        try:
+            gray_face = cv2.cvtColor(face_roi, cv2.COLOR_BGR2GRAY)
+            gray_face = cv2.resize(gray_face, (200, 200))
+            
+            label, confidence = self.face_recognizer.predict(gray_face)
+            return label, confidence
+        except Exception as e:
+            print(f"Error in face prediction: {e}")
+            return None, 0
 
     def is_face_stable(self, face_rect):
         """Check if face position is stable"""
@@ -359,7 +525,7 @@ class FaceLoginSystem:
                 print(f"Failed to save even basic data: {e2}")
                 return None
 
-    def draw_face_info(self, frame, face_rect, confidence, quality_score=None):
+    def draw_face_info(self, frame, face_rect, confidence, quality_score=None, prediction_info=None):
         """Draw face detection information"""
         x, y, w, h = face_rect[:4]
         
@@ -375,6 +541,13 @@ class FaceLoginSystem:
         if quality_score is not None:
             cv2.putText(frame, f'Quality: {quality_score:.2f}', 
                        (x, y + h + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+        
+        # Draw prediction info if available
+        if prediction_info and self.is_model_trained:
+            label, pred_confidence = prediction_info
+            if label is not None:
+                cv2.putText(frame, f'User: {label} ({pred_confidence:.1f})', 
+                           (x, y + h + 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 255), 2)
         
         # Draw eyes
         face_roi = frame[y:y+h, x:x+w]
@@ -413,6 +586,11 @@ class FaceLoginSystem:
         cv2.putText(frame, stability_text, (bar_x, bar_y - 30), 
                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
         
+        # Training samples indicator
+        training_text = f"Training samples: {len(self.training_data)}"
+        cv2.putText(frame, training_text, (bar_x, bar_y - 50), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+        
         # Status text
         if self.login_successful:
             status_text = "Login Successful!"
@@ -447,13 +625,18 @@ class FaceLoginSystem:
         
         print("Face Login System Started")
         print("Images will be saved to: face_images/")
-        print(" Data will be saved to: user_face_data/")
+        print("Data will be saved to: user_face_data/")
+        print("Models will be saved to: trained_models/")
         print("\n📋 Instructions:")
         print("   - Look directly at the camera")
         print("   - Hold still for 5 seconds") 
         print("   - Ensure good lighting")
         print("   - Press 'q' to quit")
         print("   - Press 'r' to reset")
+        print("   - Press 't' to train and save model (need 1+ samples)")
+        print("   - Press 's' to force save current training data")
+        print("   - Press 'f' to FORCE create model with current face")
+        print("   - Press 'l' to load existing model")
         #print("-" * 50)
         
         current_face_roi = None
@@ -490,8 +673,13 @@ class FaceLoginSystem:
                 # Calculate quality
                 quality_score = self.calculate_face_quality(face_roi)
                 
+                # Predict face if model is trained
+                prediction_info = None
+                if self.is_model_trained:
+                    prediction_info = self.predict_face(face_roi)
+                
                 # Draw face info
-                self.draw_face_info(frame, face_rect, confidence, quality_score)
+                self.draw_face_info(frame, face_rect, confidence, quality_score, prediction_info)
                 
                 # Check stability
                 is_stable = self.is_face_stable(face_rect)
@@ -503,14 +691,28 @@ class FaceLoginSystem:
                 
                 elapsed_time = current_time - self.detection_start_time
                 
-                # Store face data (don't require perfect stability for data collection)
-                if len(self.face_data) < 10:
+                # Store face data and prepare training data AGGRESSIVELY
+                if len(self.face_data) < 20:  # Increased limit
                     self.face_data.append({
                         'face_roi': face_roi.copy(),
                         'face_rect': face_rect,
                         'timestamp': current_time,
                         'quality_score': quality_score
                     })
+                    
+                    # Add to training data MORE FREQUENTLY (reduced quality threshold)
+                    if quality_score > 0.15:  # Very low threshold
+                        success = self.prepare_training_data(face_roi)
+                        if success:
+                            print(f"Training data collected: {len(self.training_data)}/3 needed")
+                
+                # FORCE MODEL CREATION every 10 frames if we have enough data
+                if len(self.training_data) >= 3 and not self.is_model_trained:
+                    frame_count = getattr(self, 'frame_count', 0) + 1
+                    setattr(self, 'frame_count', frame_count)
+                    if frame_count % 10 == 0:  # Try every 10 frames
+                        print("FORCING MODEL TRAINING...")
+                        self.train_and_save_model()
                 
                 # Check login completion - simplified conditions
                 if (elapsed_time >= self.required_detection_time and 
@@ -525,6 +727,26 @@ class FaceLoginSystem:
                     
                     filepath = self.save_user_data(best_data['face_roi'], best_data['face_rect'])
                     print("🎉 LOGIN SUCCESSFUL! Data and snapshot saved.")
+                    
+                    # FORCE MODEL TRAINING NOW
+                    print(f"Current training samples: {len(self.training_data)}")
+                    if len(self.training_data) >= 1:  # Even with 1 sample, try to train
+                        # Add more samples quickly if needed
+                        while len(self.training_data) < 5:
+                            self.prepare_training_data(best_data['face_roi'])
+                        
+                        print("FORCING MODEL TRAINING WITH LOGIN DATA...")
+                        model_saved = self.train_and_save_model()
+                        if not model_saved:
+                            print("❌ Model training failed! Trying alternative method...")
+                            # Try saving a simple version
+                            self.save_simple_model()
+                    else:
+                        print("No training data available, creating minimal model...")
+                        # Create minimal training data from current face
+                        for i in range(5):
+                            self.prepare_training_data(best_data['face_roi'])
+                        self.train_and_save_model()
                     
                     # Show success message for 3 seconds then close
                     success_start = time.time()
@@ -590,15 +812,57 @@ class FaceLoginSystem:
                 self.face_data = []
                 self.stable_frames = 0
                 self.previous_face_center = None
+                self.training_data = []
+                self.training_labels = []
                 if hasattr(self, 'face_lost_time'):
                     delattr(self, 'face_lost_time')
                 print("System reset!")
+            elif key == ord('t'):
+                # Train and save model (force training)
+                if len(self.training_data) >= 1:  # Accept even 1 sample
+                    print("Force training model...")
+                    self.train_and_save_model()
+                else:
+                    print(f"No training data available. Currently have {len(self.training_data)} samples")
+                    print("Stay in front of camera to collect samples.")
+            elif key == ord('s'):
+                # Force save model (new shortcut)
+                if len(self.training_data) >= 1:  # Accept even 1 sample
+                    print("Force saving current training data...")
+                    self.train_and_save_model()
+                else:
+                    print(f"No training data to save. Currently have {len(self.training_data)} samples.")
+            elif key == ord('f'):
+                # Force create model with current face (emergency option)
+                if current_face_roi is not None:
+                    print("EMERGENCY: Creating model with current face...")
+                    # Clear and rebuild training data
+                    self.training_data = []
+                    self.training_labels = []
+                    # Add current face multiple times
+                    for i in range(5):
+                        self.prepare_training_data(current_face_roi)
+                    # Force train
+                    self.train_and_save_model()
+                else:
+                    print("No face currently detected!")
+            elif key == ord('l'):
+                # Load existing model
+                print("Available models:")
+                model_files = [f for f in os.listdir(self.models_dir) if f.endswith('.yml')]
+                if model_files:
+                    latest_model = max(model_files)
+                    model_path = os.path.join(self.models_dir, latest_model)
+                    self.load_model(model_path)
+                else:
+                    print("No saved models found!")
         
         cap.release()
         cv2.destroyAllWindows()
         print("Face Login System Stopped")
-        print(f"📁 Check your snapshots in: {os.path.abspath(self.images_dir)}")
+        print(f"Check your snapshots in: {os.path.abspath(self.images_dir)}")
         print(f"Check your data files in: {os.path.abspath(self.user_data_dir)}")
+        print(f"Check your models in: {os.path.abspath(self.models_dir)}")
 
 def main():
     """Main function to run the face login system"""
