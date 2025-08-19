@@ -254,7 +254,7 @@ class FaceLoginSystem:
             self.training_data.append(gray_face)
             self.training_labels.append(self.user_id)
             
-            print(f"✓ Added training sample {len(self.training_data)} for user {self.user_id}")
+            print(f"Added training sample {len(self.training_data)} for user {self.user_id}")
             return True
         except Exception as e:
             print(f"Error preparing training data: {e}")
@@ -314,7 +314,7 @@ class FaceLoginSystem:
             # Train the LBPH recognizer
             new_recognizer.train(training_data_array, training_labels_array)
             self.is_model_trained = True
-            print("✓ Model training completed successfully!")
+            print("Model training completed successfully!")
             
             # Save the trained model
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -333,9 +333,9 @@ class FaceLoginSystem:
             # Verify the file was created
             if os.path.exists(model_path):
                 file_size = os.path.getsize(model_path)
-                print(f"✓ Model file created successfully: {model_path} (Size: {file_size} bytes)")
+                print(f"Model file created successfully: {model_path} (Size: {file_size} bytes)")
             else:
-                print(f"❌ Model file was NOT created: {model_path}")
+                print(f"Model file was NOT created: {model_path}")
                 return False
             
             # Also save training metadata
@@ -354,14 +354,14 @@ class FaceLoginSystem:
             with open(metadata_path, 'w') as f:
                 json.dump(metadata, f, indent=2)
             
-            print(f"✓ Model successfully saved to: {model_path}")
-            print(f"✓ Model metadata saved to: {metadata_path}")
-            print(f"✓ Training completed with {len(self.training_data)} samples")
+            print(f"Model successfully saved to: {model_path}")
+            print(f"Model metadata saved to: {metadata_path}")
+            print(f"Training completed with {len(self.training_data)} samples")
             
             # Also save a backup with a simple name for Flask integration
             simple_model_path = os.path.join(self.models_dir, "latest_face_model.yml")
             new_recognizer.write(simple_model_path)
-            print(f"✓ Latest model also saved as: {simple_model_path}")
+            print(f"Saving the latest model as: {simple_model_path}")
             
             # Update the main recognizer
             self.face_recognizer = new_recognizer
@@ -369,7 +369,7 @@ class FaceLoginSystem:
             return True
             
         except Exception as e:
-            print(f"❌ Error training/saving model: {e}")
+            print(f"Error saving model: {e}")
             import traceback
             traceback.print_exc()
             return False
@@ -380,7 +380,7 @@ class FaceLoginSystem:
             if os.path.exists(model_path):
                 self.face_recognizer.read(model_path)
                 self.is_model_trained = True
-                print(f"✓ Model loaded from: {model_path}")
+                print(f"Model loaded from: {model_path}")
                 return True
             else:
                 print(f"Model file not found: {model_path}")
@@ -494,9 +494,9 @@ class FaceLoginSystem:
             with open(json_filepath, 'w') as f:
                 json.dump(user_data, f, indent=2)
             
-            print(f"✓ Face snapshot saved to: {face_image_path}")
-            print(f"✓ Face data saved to: {json_filepath}")
-            print(f"✓ Quality score: {quality_score:.2f}")
+            print(f"Face snapshot saved to: {face_image_path}")
+            print(f"Face data saved to: {json_filepath}")
+            print(f"Quality score: {quality_score:.2f}")
             return json_filepath
             
         except Exception as e:
@@ -627,7 +627,7 @@ class FaceLoginSystem:
         print("Images will be saved to: face_images/")
         print("Data will be saved to: user_face_data/")
         print("Models will be saved to: trained_models/")
-        print("\n📋 Instructions:")
+        print("\nInstructions:")
         print("   - Look directly at the camera")
         print("   - Hold still for 5 seconds") 
         print("   - Ensure good lighting")
@@ -738,7 +738,7 @@ class FaceLoginSystem:
                         print("FORCING MODEL TRAINING WITH LOGIN DATA...")
                         model_saved = self.train_and_save_model()
                         if not model_saved:
-                            print("❌ Model training failed! Trying alternative method...")
+                            print("Model training failed! Trying alternative method...")
                             # Try saving a simple version
                             self.save_simple_model()
                     else:
@@ -876,3 +876,4 @@ def main():
     
 if __name__ == "__main__":
     main()
+
